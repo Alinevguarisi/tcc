@@ -1,6 +1,7 @@
 import cv2
 import os
 import numpy as np
+import random
 from glob import glob
 import mediapipe as mp
 
@@ -39,6 +40,36 @@ def get_dynamic_roi(frame):
         roi = frame[y_min:y_max, x_min:x_max]
         return roi
 
+def apply_augmentation(image):
+    # Flip horizontal com 30% de chance
+    if random.random() < 0.3:
+        image = cv2.flip(image, 1)
+
+    # Rotação leve entre -10 e +10 graus
+    angle = random.uniform(-10, 10)
+    h, w = image.shape[:2]
+    matrix = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1)
+    image = cv2.warpAffine(image, matrix, (w, h), borderMode=cv2.BORDER_REFLECT)
+
+    # Ajuste de brilho/saturação com variação menor
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV).astype(np.float32)
+    hsv[..., 1] *= random.uniform(0.95, 1.05)  # saturação
+    hsv[..., 2] *= random.uniform(0.95, 1.1)   # brilho
+    hsv = np.clip(hsv, 0, 255).astype(np.uint8)
+    image = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+
+    # Desfoque leve com 20% de chance
+    if random.random() < 0.2:
+        ksize = 3
+        image = cv2.GaussianBlur(image, (ksize, ksize), 0)
+
+    # Ruído Gaussiano **mais suave**
+    noise = np.random.normal(0, 2, image.shape).astype(np.int16)
+    image = np.clip(image.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+
+    return image
+
+
 def create_output_directory(base_path, gesture):
     gesture_path = os.path.join(base_path, gesture)
     os.makedirs(gesture_path, exist_ok=True)
@@ -48,7 +79,7 @@ def create_output_directory(base_path, gesture):
     os.makedirs(out_dir, exist_ok=True)
     return out_dir
 
-# === ALTERE AQUI SEU CAMINHO DO DRIVE ===
+# === CAMINHO DO DRIVE ===
 BASE_DRIVE_PATH = r"G:\Meu Drive\TCC - Aline e Gabi"
 out_base_path = r'C:\Users\Aline\Desktop\gestures_dataset'
 
@@ -56,7 +87,6 @@ out_base_path = r'C:\Users\Aline\Desktop\gestures_dataset'
 video_files = glob(os.path.join(BASE_DRIVE_PATH, '**', '*.mp4'), recursive=True)
 
 for vid_path in video_files:
-    # Usa o nome da pasta-mãe como nome do gesto (ex: ...\arvore\video.mp4 => "arvore")
     gesture_name = os.path.basename(os.path.dirname(vid_path))
     vid_name = os.path.basename(vid_path)
     print(f"Processando vídeo: {vid_name} para o gesto: {gesture_name}")
@@ -82,14 +112,18 @@ for vid_path in video_files:
             print(f"Frame {i}: Nenhum ROI detectado, salvando apenas o frame completo.")
             roi_frame = normalized_frame
 
+        # Aplica data augmentation no ROI
+            roi_original_path = os.path.join(out_dir, f"frame_{i}_roi_raw.jpg")
+        cv2.imwrite(roi_original_path, roi_frame)
+
         normalized_frame_path = os.path.join(out_dir, f"frame_{i}.jpg")
         roi_frame_path = os.path.join(out_dir, f"frame_{i}_roi.jpg")
 
         cv2.imwrite(normalized_frame_path, normalized_frame)
-        cv2.imwrite(roi_frame_path, roi_frame)
+        cv2.imwrite(roi_frame_path, roi_augmented)
 
         print(f'Imagem salva: {normalized_frame_path}')
-        print(f'Imagem (ROI) salva: {roi_frame_path}')
+        print(f'Imagem (ROI Aumentado) salva: {roi_frame_path}')
         i += 1
 
     video.release()
