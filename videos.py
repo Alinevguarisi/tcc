@@ -15,7 +15,6 @@ def get_dynamic_roi(frame):
         image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = holistic.process(image_rgb)
 
-        # Coleta landmarks das mãos, rosto e corpo
         landmarks = []
         if results.face_landmarks:
             landmarks.extend([(lm.x, lm.y) for lm in results.face_landmarks.landmark])
@@ -27,13 +26,11 @@ def get_dynamic_roi(frame):
             landmarks.extend([(lm.x, lm.y) for lm in results.pose_landmarks.landmark])
 
         if not landmarks:
-            return None  # Não encontrou nada
+            return None
 
-        # Converte para coordenadas de pixel
         h, w, _ = frame.shape
         coords = np.array([[int(x * w), int(y * h)] for x, y in landmarks])
 
-        # Define uma caixa de ROI ligeiramente ampliada
         x_min = max(np.min(coords[:, 0]) - 20, 0)
         y_min = max(np.min(coords[:, 1]) - 20, 0)
         x_max = min(np.max(coords[:, 0]) + 20, w)
@@ -45,29 +42,22 @@ def get_dynamic_roi(frame):
 def create_output_directory(base_path, gesture):
     gesture_path = os.path.join(base_path, gesture)
     os.makedirs(gesture_path, exist_ok=True)
-
-    # Conta quantas sequências já existem
     existing_sequences = glob(os.path.join(gesture_path, "sequence_*"))
     sequence_number = len(existing_sequences)
-
     out_dir = os.path.join(gesture_path, f'sequence_{sequence_number}')
     os.makedirs(out_dir, exist_ok=True)
     return out_dir
 
-# Lista de vídeos por gesto
-video_files = [
-    ("C:\\Users\\Aline\\Desktop\\teste\\Arvore (1).mp4", "arvore"),
-    ("C:\\Users\\Aline\\Desktop\\teste\\Arvore (2).mp4", "arvore"),
-    ("C:\\Users\\Aline\\Desktop\\teste\\Arvore (3).mp4", "arvore"),
-    ("C:\\Users\\Aline\\Desktop\\teste\\oi.mp4", "oi"),
-    ("C:\\Users\\Aline\\Desktop\\teste\\oi (1).mp4", "oi"),
-    ("C:\\Users\\Aline\\Desktop\\teste\\oi (2).mp4", "oi"),
-    # Adicione mais vídeos aqui se necessário
-]
+# === ALTERE AQUI SEU CAMINHO DO DRIVE ===
+BASE_DRIVE_PATH = r"G:\Meu Drive\TCC - Aline e Gabi"
+out_base_path = r'C:\Users\Aline\Desktop\gestures_dataset'
 
-out_base_path = 'C:\\Users\\Aline\\Desktop\\gestures_dataset\\'
+# Busca todos os arquivos mp4 dentro da pasta e subpastas
+video_files = glob(os.path.join(BASE_DRIVE_PATH, '**', '*.mp4'), recursive=True)
 
-for vid_path, gesture_name in video_files:
+for vid_path in video_files:
+    # Usa o nome da pasta-mãe como nome do gesto (ex: ...\arvore\video.mp4 => "arvore")
+    gesture_name = os.path.basename(os.path.dirname(vid_path))
     vid_name = os.path.basename(vid_path)
     print(f"Processando vídeo: {vid_name} para o gesto: {gesture_name}")
 
