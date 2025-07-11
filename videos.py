@@ -63,12 +63,11 @@ def apply_augmentation(image):
         ksize = 3
         image = cv2.GaussianBlur(image, (ksize, ksize), 0)
 
-    # Ruído Gaussiano **mais suave**
+    # Ruído Gaussiano suave
     noise = np.random.normal(0, 2, image.shape).astype(np.int16)
     image = np.clip(image.astype(np.int16) + noise, 0, 255).astype(np.uint8)
 
     return image
-
 
 def create_output_directory(base_path, gesture):
     gesture_path = os.path.join(base_path, gesture)
@@ -112,21 +111,27 @@ for vid_path in video_files:
             print(f"Frame {i}: Nenhum ROI detectado, salvando apenas o frame completo.")
             roi_frame = normalized_frame
 
-        # Aplica data augmentation no ROI
-            roi_original_path = os.path.join(out_dir, f"frame_{i}_roi_raw.jpg")
+        # Salva o ROI original (sem augmentation)
+        roi_original_path = os.path.join(out_dir, f"frame_{i}_roi_raw.jpg")
         cv2.imwrite(roi_original_path, roi_frame)
 
-        normalized_frame_path = os.path.join(out_dir, f"frame_{i}.jpg")
-        roi_frame_path = os.path.join(out_dir, f"frame_{i}_roi.jpg")
+        # Aplica data augmentation no ROI
+        roi_augmented = apply_augmentation(roi_frame)
 
+        # Caminhos para salvar
+        normalized_frame_path = os.path.join(out_dir, f"frame_{i}.jpg")
+        roi_augmented_path = os.path.join(out_dir, f"frame_{i}_roi.jpg")
+
+        # Salva arquivos
         cv2.imwrite(normalized_frame_path, normalized_frame)
-        cv2.imwrite(roi_frame_path, roi_augmented)
+        cv2.imwrite(roi_augmented_path, roi_augmented)
 
         print(f'Imagem salva: {normalized_frame_path}')
-        print(f'Imagem (ROI Aumentado) salva: {roi_frame_path}')
+        print(f'ROI original salva: {roi_original_path}')
+        print(f'ROI aumentada salva: {roi_augmented_path}')
         i += 1
 
     video.release()
-    print(f'Conversão concluída para: {vid_name}\n')
+    print(f'✅ Conversão concluída para: {vid_name}\n')
 
-print("Processamento de vídeos finalizado.")
+print("🏁 Processamento de vídeos finalizado.")
