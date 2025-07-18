@@ -1,20 +1,15 @@
 import os
-import cv2
 import json
 import torch
 import numpy as np
 import torch.nn as nn
 import torch.optim as optim
+from PIL import Image
+import time
+import pandas as pd
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-import time
-import pandas as pd
-
-start_time = time.time()
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print("Treinando em:", device)
 
 # ------------------- MODELO CNN + LSTM -------------------
 
@@ -103,110 +98,112 @@ class GestureDataset(Dataset):
         return len(self.sequences)
 
     def __getitem__(self, idx):
-        frames = self.sequences[idx]
-        label = self.labels[idx]
-
-        selected_frames = sample_frames(frames, self.max_len)
-        tensor_seq = []
-
-        for fpath in selected_frames:
-            img = cv2.imread(fpath)
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            tensor = self.transform(img)
-            tensor_seq.append(tensor)
-
-        tensor_seq = torch.stack(tensor_seq)
-        return tensor_seq, torch.tensor(label)
+        try:
+            frames = self.sequences[idx]
+            label = self.labels[idx]
+            selected_frames = sample_frames(frames, self.max_len)
+            tensor_seq = []
+            for fpath in selected_frames:
+                # print(f"Lendo imagem: {fpath}")  # DEBUG
+                img = Image.open(fpath).convert("RGB")
+                tensor = self.transform(img)
+                tensor_seq.append(tensor)
+            tensor_seq = torch.stack(tensor_seq)
+            return tensor_seq, torch.tensor(label)
+        except Exception as e:
+            print(f"Erro no __getitem__ do idx {idx}: {e}")
+            raise
 
 # ------------------- TREINAMENTO -------------------
 
-base_path = r'G:\\.shortcut-targets-by-id\\1oE-zIqZbRz2ez0t_V-LtSwaX3WOtwg9E\\TCC - Aline e Gabi\\gestures_dataset'
-base_path = r'D:\\Everaldo\\Pictures\\temp_gestures_dataset'
-dataset = GestureDataset(base_path, max_len=150, use_raw=True, use_aug=True)
-dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
+if __name__ == "__main__":
+    start_time = time.time()
 
-best_acc = 0.0
-metrics_history = []
-cnn_output_size = 32 * 56 * 56
-hidden_size = 128
-num_classes = len(dataset.class_to_idx)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print("Treinando em:", device)
 
-model = CNNLSTMModel(cnn_output_size, hidden_size, num_classes).to(device)
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=0.0001)
+    base_path = r'G:\\.shortcut-targets-by-id\\1oE-zIqZbRz2ez0t_V-LtSwaX3WOtwg9E\\TCC - Aline e Gabi\\gestures_dataset'
+    base_path = r'D:\\Everaldo\\Pictures\\gestures_dataset'
+    dataset = GestureDataset(base_path, max_len=135, use_raw=True, use_aug=True)
+    dataloader = DataLoader(dataset, batch_size=8, shuffle=True, num_workers=2, pin_memory=True)
 
-print(f"Classes: {dataset.class_to_idx}")
-print(f"Total sequências: {len(dataset)}")
+    best_acc = 0.0
+    metrics_history = []
+    cnn_output_size = 32 * 56 * 56
+    hidden_size = 128
+    num_classes = len(dataset.class_to_idx)
+    num_epochs = 25
 
-# Salva o mapeamento de classes
-with open("class_to_idx.json", "w") as f:
-    json.dump(dataset.class_to_idx, f)
-print("📄 class_to_idx.json salvo.")
+    model = CNNLSTMModel(cnn_output_size, hidden_size, num_classes).to(device)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=0.0001)
 
-num_epochs = 10
-for epoch in range(num_epochs):
-    epoch_start = time.time()
-    model.train()
-    for sequences, labels in dataloader:
-        sequences = sequences.to(device)
-        labels = labels.to(device)
-        optimizer.zero_grad()
-        outputs = model(sequences)
-        loss = criterion(outputs, labels)
-        loss.backward()
-        optimizer.step()
-    print(f"Epoch {epoch+1}/{num_epochs} - Loss: {loss.item():.4f}")
-    
-    epoch_end = time.time()
-    print(f"Epoch {epoch+1}/{num_epochs} - Tempo: {epoch_end - epoch_start:.2f} segundos")
+    print(f"Classes: {dataset.class_to_idx}")
+    print(f"Total sequências: {len(dataset)}")
 
-    # Avaliação
-    model.eval()
-    all_labels = []
-    all_preds = []
-    with torch.no_grad():
+    with open("class_to_idx.json", "w") as f:
+        json.dump(dataset.class_to_idx, f)
+
+    print("Treinamento iniciado.")
+    for epoch in range(num_epochs):
+        epoch_start = time.time()
+        model.train()
         for sequences, labels in dataloader:
             sequences = sequences.to(device)
             labels = labels.to(device)
+            optimizer.zero_grad()
             outputs = model(sequences)
-            _, preds = torch.max(outputs, 1)
-            all_labels.extend(labels.cpu().numpy())
-            all_preds.extend(preds.cpu().numpy())
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
 
-    acc = accuracy_score(all_labels, all_preds)
-    prec = precision_score(all_labels, all_preds, average='macro', zero_division=0)
-    rec = recall_score(all_labels, all_preds, average='macro', zero_division=0)
-    f1 = f1_score(all_labels, all_preds, average='macro', zero_division=0)
-    print(f"Accuracy: {acc:.4f} | Precision: {prec:.4f} | Recall: {rec:.4f} | F1: {f1:.4f}")
+        # Avaliação
+        model.eval()
+        all_labels = []
+        all_preds = []
+        with torch.no_grad():
+            for sequences, labels in dataloader:
+                sequences = sequences.to(device)
+                labels = labels.to(device)
+                outputs = model(sequences)
+                _, preds = torch.max(outputs, 1)
+                all_labels.extend(labels.cpu().numpy())
+                all_preds.extend(preds.cpu().numpy())
 
-    metrics_history.append({
-        "epoch": epoch + 1,
-        "loss": loss.item(),
-        "accuracy": acc,
-        "precision": prec,
-        "recall": rec,
-        "f1": f1,
-        "epoch_time": epoch_end - epoch_start
-    })
+        acc = accuracy_score(all_labels, all_preds)
+        prec = precision_score(all_labels, all_preds, average='macro', zero_division=0)
+        rec = recall_score(all_labels, all_preds, average='macro', zero_division=0)
+        f1 = f1_score(all_labels, all_preds, average='macro', zero_division=0)
+        epoch_end = time.time()
 
-    if acc > best_acc:
-        best_acc = acc
-        torch.save(model.state_dict(), 'cnn_lstm_best_model.pth')
-        print(f"🔖 Novo melhor modelo salvo! Accuracy: {acc:.4f}")
+        metrics_history.append({
+            "epoch": epoch + 1,
+            "loss": loss.item(),
+            "accuracy": acc,
+            "precision": prec,''
+            "recall": rec,
+            "f1": f1,
+            "epoch_time": epoch_end - epoch_start
+        })
 
-    epoch_end = time.time()
-    print(f"Epoch {epoch+1}/{num_epochs} - Tempo: {epoch_end - epoch_start:.2f} segundos\\n")
+        if acc > best_acc:
+            best_acc = acc
+            torch.save(model.state_dict(), 'cnn_lstm_best_model.pth')
+            print(f"🔖 Novo melhor modelo salvo! Accuracy: {acc:.4f}")
 
-# ------------------- SALVAR MODELO -------------------
+        print(f"Accuracy: {acc:.4f} | Precision: {prec:.4f} | Recall: {rec:.4f} | F1: {f1:.4f} | loss: {loss.item()}")
+        print(f"Epoch {epoch+1}/{num_epochs} - Tempo: {epoch_end - epoch_start:.2f} segundos", end='\n\n')
 
-torch.save(model.state_dict(), 'cnn_lstm_model.pth')
-print("✅ Modelo treinado e salvo como 'cnn_lstm_model.pth'")
+    # ------------------- SALVAR MODELO -------------------
 
-df_metrics = pd.DataFrame(metrics_history)
-df_metrics.to_csv("metrics_history.csv", index=False)
-print("📊 Métricas salvas em metrics_history.csv")
+    torch.save(model.state_dict(), 'cnn_lstm_model.pth')
+    print("✅ Modelo treinado e salvo como 'cnn_lstm_model.pth'")
 
-end_time = time.time()
-total_time = end_time - start_time
-print(f"Tempo total de execução: {total_time:.2f} segundos")
-print(f"Tempo total de execução: {total_time/60:.2f} minutos")
+    df_metrics = pd.DataFrame(metrics_history)
+    df_metrics.to_csv("metrics_history.csv", index=False)
+    print("📊 Métricas salvas em metrics_history.csv")
+
+    end_time = time.time()
+    total_time = end_time - start_time
+    print(f"Tempo total de execução: {total_time:.2f} segundos")
+    print(f"Tempo total de execução: {total_time/60:.2f} minutos")

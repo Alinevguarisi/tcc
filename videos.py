@@ -82,11 +82,12 @@ def create_output_directory(base_path, gesture):
     return raw_dir, aug_dir
 
 # === CAMINHOS ===
-local_temp_base_path = r'D:\\Everaldo\\Pictures\\temp_gestures_dataset'
 drive_base_path = r'G:\\.shortcut-targets-by-id\\1oE-zIqZbRz2ez0t_V-LtSwaX3WOtwg9E\\TCC - Aline e Gabi\\gestures_dataset'
-BASE_DRIVE_PATH = r"G:\\.shortcut-targets-by-id\\1oE-zIqZbRz2ez0t_V-LtSwaX3WOtwg9E\\TCC - Aline e Gabi"
 
-video_files = glob(os.path.join(BASE_DRIVE_PATH, '**', '*.mp4'), recursive=True)
+local_temp_base_path = r'D:\\Everaldo\\Pictures\\temp_gestures_dataset'
+base_drive_path = r"G:\\.shortcut-targets-by-id\\1oE-zIqZbRz2ez0t_V-LtSwaX3WOtwg9E\\TCC - Aline e Gabi\\videos_libras\\eu_amo_voce"
+
+video_files = glob(os.path.join(base_drive_path, '**', '*.mp4'), recursive=True)
 
 # Inicializa MediaPipe Holistic fora do loop
 with mp_holistic.Holistic(static_image_mode=True) as holistic:
@@ -124,9 +125,9 @@ with mp_holistic.Holistic(static_image_mode=True) as holistic:
             roi_augmented_path = os.path.join(aug_dir, f"frame_{i}_roi.jpg")
             cv2.imwrite(roi_augmented_path, roi_augmented)
 
-            if i % 50 == 0:
-                print(f'{i} frames processados para {vid_name}')
             i += 1
+        
+        print(f'{i} frames processados para {vid_name}')
 
         video.release()
         print(f'✅ Conversão concluída para: {vid_name}', end='\n\n')
