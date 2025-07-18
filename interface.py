@@ -1,15 +1,19 @@
 import cv2
-import os
+import json
 import torch
 import torch.nn as nn
-import numpy as np
 from torchvision import transforms
 
 # ------ Configurações ------
+
+with open("class_to_idx.json", "r", encoding="utf-8") as f:
+    class_to_idx = json.load(f)
+
+class_map = {v: k for k, v in class_to_idx.items()}
 model_path = 'cnn_lstm_best_model.pth'
-dataset_path = 'G:\\.shortcut-targets-by-id\\1oE-zIqZbRz2ez0t_V-LtSwaX3WOtwg9E\\TCC - Aline e Gabi\\gestures_dataset'
-max_len = 30
+max_len = 135
 frame_size = (224, 224)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # ------ Modelo CNN + LSTM ------
 class CNNLSTMModel(nn.Module):
@@ -38,16 +42,10 @@ class CNNLSTMModel(nn.Module):
         out = self.fc(lstm_out[:, -1])
         return out
 
-# ------ Obter mapeamento de classes ------
-def get_class_map(dataset_path):
-    gestures = sorted(os.listdir(dataset_path))
-    return {idx: gesture for idx, gesture in enumerate(gestures)}
-
 # ------ Carrega modelo ------
-class_map = get_class_map(dataset_path)
 num_classes = len(class_map)
 model = CNNLSTMModel(cnn_output_size=32 * 56 * 56, hidden_size=128, num_classes=num_classes)
-model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
+model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
 model.eval()
 
 
