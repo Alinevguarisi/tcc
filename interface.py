@@ -6,7 +6,7 @@ import numpy as np
 from torchvision import transforms
 
 # ------ Configurações ------
-model_path = 'cnn_lstm_model.pth'
+model_path = 'cnn_lstm_best_model.pth'
 dataset_path = 'G:\\.shortcut-targets-by-id\\1oE-zIqZbRz2ez0t_V-LtSwaX3WOtwg9E\\TCC - Aline e Gabi\\gestures_dataset'
 max_len = 30
 frame_size = (224, 224)
@@ -47,8 +47,9 @@ def get_class_map(dataset_path):
 class_map = get_class_map(dataset_path)
 num_classes = len(class_map)
 model = CNNLSTMModel(cnn_output_size=32 * 56 * 56, hidden_size=128, num_classes=num_classes)
-model.load_state_dict(torch.load(model_path))
+model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
 model.eval()
+
 
 # ------ Transformação para imagens ------
 transform = transforms.Compose([
