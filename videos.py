@@ -9,10 +9,8 @@ import shutil
 # Inicializa o MediaPipe Holistic
 mp_holistic = mp.solutions.holistic
 
-def normalize_frame(frame, size=(224, 224)):
-    return cv2.resize(frame, size)
-
-def get_dynamic_roi(frame, holistic):
+def get_dynamic_square_roi(frame, holistic, padding_factor=1.3):
+    h_frame, w_frame, _ = frame.shape
     image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     results = holistic.process(image_rgb)
 
@@ -29,44 +27,70 @@ def get_dynamic_roi(frame, holistic):
     if not landmarks:
         return None
 
-    h, w, _ = frame.shape
-    coords = np.array([[int(x * w), int(y * h)] for x, y in landmarks])
+    coords = np.array([[lm_x * w_frame, lm_y * h_frame] for lm_x, lm_y in landmarks])
+    x_min, y_min = np.min(coords, axis=0)
+    x_max, y_max = np.max(coords, axis=0)
+    
+    box_w = x_max - x_min
+    box_h = y_max - y_min
+    center_x = x_min + box_w / 2
+    center_y = y_min + box_h / 2
 
-    x_min = max(np.min(coords[:, 0]) - 20, 0)
-    y_min = max(np.min(coords[:, 1]) - 20, 0)
-    x_max = min(np.max(coords[:, 0]) + 20, w)
-    y_max = min(np.max(coords[:, 1]) + 20, h)
+    side_length = max(box_w, box_h)
+    square_size = int(side_length * padding_factor)
 
-    roi = frame[y_min:y_max, x_min:x_max]
-    return roi
+    new_x_min = int(center_x - square_size / 2)
+    new_y_min = int(center_y - square_size / 2)
+    new_x_max = new_x_min + square_size
+    new_y_max = new_y_min + square_size
+    
+    new_x_min = max(0, new_x_min)
+    new_y_min = max(0, new_y_min)
+    new_x_max = min(w_frame, new_x_max)
+    new_y_max = min(h_frame, new_y_max)
+
+    square_roi = frame[new_y_min:new_y_max, new_x_min:new_x_max]
+    
+    return square_roi
 
 def generate_augmentation_params():
     params = {
-        'do_flip': random.random() < 0.3,
         'angle': random.uniform(-10, 10),
-        'saturation': random.uniform(0.95, 1.05),
-        'brightness': random.uniform(0.95, 1.1),
-        'do_blur': random.random() < 0.2,
-        'noise_std': 2
+        'scale': random.uniform(0.9, 1.1),
+        'tx': random.uniform(-0.05, 0.05),
+        'ty': random.uniform(-0.05, 0.05),
+        'brightness': random.uniform(0.8, 1.2),
+        'saturation': random.uniform(0.8, 1.2),
+        'contrast': random.uniform(0.9, 1.1),
+        'do_blur': random.random() < 0.15,
+        'noise_std': random.uniform(0, 3),
     }
     return params
 
 def apply_augmentation(image, params):
-    if params['do_flip']:
-        image = cv2.flip(image, 1)
+    if image is None or image.size == 0:
+        return None
+        
     h, w = image.shape[:2]
-    matrix = cv2.getRotationMatrix2D((w / 2, h / 2), params['angle'], 1)
+
+    center = (w / 2, h / 2)
+    matrix = cv2.getRotationMatrix2D(center, params['angle'], params['scale'])
+    matrix[0, 2] += w * params['tx']
+    matrix[1, 2] += h * params['ty']
     image = cv2.warpAffine(image, matrix, (w, h), borderMode=cv2.BORDER_REFLECT)
+
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV).astype(np.float32)
     hsv[..., 1] *= params['saturation']
     hsv[..., 2] *= params['brightness']
     hsv = np.clip(hsv, 0, 255).astype(np.uint8)
     image = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+    image = cv2.addWeighted(image, params['contrast'], np.zeros_like(image), 0, 0)
+
     if params['do_blur']:
-        ksize = 3
-        image = cv2.GaussianBlur(image, (ksize, ksize), 0)
+        image = cv2.GaussianBlur(image, (3, 3), 0)
     noise = np.random.normal(0, params['noise_std'], image.shape).astype(np.int16)
     image = np.clip(image.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+
     return image
 
 def create_output_directory(base_path, gesture):
@@ -81,59 +105,76 @@ def create_output_directory(base_path, gesture):
     os.makedirs(aug_dir, exist_ok=True)
     return raw_dir, aug_dir
 
-# === CAMINHOS ===
-drive_base_path = r'G:\\.shortcut-targets-by-id\\1oE-zIqZbRz2ez0t_V-LtSwaX3WOtwg9E\\TCC - Aline e Gabi\\gestures_dataset'
+# ==================== CAMINHOS (AJUSTE AQUI) ====================
+caminho_videos_originais = r"G:\Meu Drive\TCC - Aline e Gabi\sinais_treinados\obrigado"
+caminho_local_temporario = r'C:\Users\Aline\Desktop\dataset_temporario'
+caminho_final_drive = r'G:\Meu Drive\TCC - Aline e Gabi\gestures_dataset_processado'
+# =================================================================
 
-local_temp_base_path = r'D:\\Everaldo\\Pictures\\temp_gestures_dataset'
-base_drive_path = r"G:\\.shortcut-targets-by-id\\1oE-zIqZbRz2ez0t_V-LtSwaX3WOtwg9E\\TCC - Aline e Gabi\\videos_libras\\eu_amo_voce"
+# --- ETAPA DE VERIFICAÇÃO ---
+print("--- INICIANDO VERIFICAÇÃO ---")
+print(f"Procurando por vídeos .mp4 em: '{caminho_videos_originais}'")
 
-video_files = glob(os.path.join(base_drive_path, '**', '*.mp4'), recursive=True)
+video_files = glob(os.path.join(caminho_videos_originais, '**', '*.mp4'), recursive=True)
 
-# Inicializa MediaPipe Holistic fora do loop
-with mp_holistic.Holistic(static_image_mode=True) as holistic:
-    for vid_path in video_files:
-        gesture_name = os.path.basename(os.path.dirname(vid_path))
-        vid_name = os.path.basename(vid_path)
-        print(f"Processando vídeo: {vid_name} para o sinal: {gesture_name}")
+print(f"--> Foram encontrados {len(video_files)} vídeos.")
+print("---------------------------\n")
+# -----------------------------
 
-        video = cv2.VideoCapture(vid_path)
-        if not video.isOpened():
-            print(f"Erro ao abrir o vídeo: {vid_name}")
-            continue
 
-        raw_dir, aug_dir = create_output_directory(local_temp_base_path, gesture_name)
-        i = 1
+# O processamento só continua se algum vídeo for encontrado
+if not video_files:
+    print("AVISO: Nenhum vídeo foi encontrado. O script não continuará.")
+    print("Por favor, verifique se a variável 'caminho_videos_originais' está correta.")
+else:
+    with mp_holistic.Holistic(static_image_mode=True, min_detection_confidence=0.5, min_tracking_confidence=0.5) as holistic:
+        for vid_path in video_files:
+            gesture_name = os.path.basename(os.path.dirname(vid_path))
+            if not gesture_name or gesture_name == os.path.basename(caminho_videos_originais):
+                gesture_name = os.path.basename(caminho_videos_originais)
+                
+            vid_name = os.path.basename(vid_path)
+            print(f"Processando vídeo: {vid_name} para o sinal: {gesture_name}")
 
-        augmentation_params = generate_augmentation_params()
-        while video.isOpened():
-            flag, frame = video.read()
-            if not flag:
-                break
+            video = cv2.VideoCapture(vid_path)
+            if not video.isOpened():
+                print(f"  - Erro ao abrir o vídeo: {vid_name}")
+                continue
 
-            normalized_frame = normalize_frame(frame)
-            roi_frame = get_dynamic_roi(normalized_frame, holistic)
+            raw_dir, aug_dir = create_output_directory(caminho_local_temporario, gesture_name)
+            frame_count = 1
 
-            if roi_frame is None:
-                roi_frame = normalized_frame
+            augmentation_params = generate_augmentation_params()
+            
+            while video.isOpened():
+                flag, frame = video.read()
+                if not flag:
+                    break
 
-            # Salva ROI raw
-            roi_original_path = os.path.join(raw_dir, f"frame_{i}_roi_raw.jpg")
-            cv2.imwrite(roi_original_path, roi_frame)
+                roi_frame = get_dynamic_square_roi(frame, holistic)
 
-            # Salva ROI augmentada
-            roi_augmented = apply_augmentation(roi_frame, augmentation_params)
-            roi_augmented_path = os.path.join(aug_dir, f"frame_{i}_roi.jpg")
-            cv2.imwrite(roi_augmented_path, roi_augmented)
+                if roi_frame is None or roi_frame.size == 0:
+                    continue
 
-            i += 1
-        
-        print(f'{i} frames processados para {vid_name}')
+                roi_frame_resized = cv2.resize(roi_frame, (256, 256), interpolation=cv2.INTER_AREA)
 
-        video.release()
-        print(f'✅ Conversão concluída para: {vid_name}', end='\n\n')
+                roi_original_path = os.path.join(raw_dir, f"frame_{frame_count}_raw.jpg")
+                cv2.imwrite(roi_original_path, roi_frame_resized)
 
-print("🏁 Processamento de vídeos local finalizado.")
+                roi_augmented = apply_augmentation(roi_frame_resized, augmentation_params)
+                if roi_augmented is not None:
+                    roi_augmented_path = os.path.join(aug_dir, f"frame_{frame_count}_aug.jpg")
+                    cv2.imwrite(roi_augmented_path, roi_augmented)
 
-# print("Movendo arquivos para o Google Drive...")
-# shutil.move(local_temp_base_path, drive_base_path)
-# print("✅ Arquivos movidos para o Google Drive com sucesso!")
+                frame_count += 1
+            
+            print(f'-> {frame_count-1} frames válidos processados para {vid_name}')
+            video.release()
+            print(f'✅ Conversão concluída para: {vid_name}', end='\n\n')
+
+    print("🏁 Processamento de vídeos finalizado.")
+
+    # Descomente a linha abaixo se quiser mover os arquivos para o Drive automaticamente
+    # print(f"Movendo arquivos de '{caminho_local_temporario}' para '{caminho_final_drive}'...")
+    # shutil.move(caminho_local_temporario, caminho_final_drive)
+    # print("✅ Arquivos movidos para o Google Drive com sucesso!")
