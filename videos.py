@@ -36,21 +36,29 @@ def get_dynamic_square_roi(frame, holistic, padding_factor=1.3):
     center_x = x_min + box_w / 2
     center_y = y_min + box_h / 2
 
+    # Determina o lado do quadrado usando o maior lado da caixa delimitadora
     side_length = max(box_w, box_h)
     square_size = int(side_length * padding_factor)
 
+    # Calcula as novas coordenadas para o quadrado centrado
     new_x_min = int(center_x - square_size / 2)
     new_y_min = int(center_y - square_size / 2)
     new_x_max = new_x_min + square_size
     new_y_max = new_y_min + square_size
     
+    # Garante que as coordenadas do quadrado não saiam dos limites da imagem
     new_x_min = max(0, new_x_min)
     new_y_min = max(0, new_y_min)
     new_x_max = min(w_frame, new_x_max)
     new_y_max = min(h_frame, new_y_max)
 
+    # Recorta a região de interesse (ROI) quadrada
     square_roi = frame[new_y_min:new_y_max, new_x_min:new_x_max]
     
+    # Verifica se o recorte resultou em uma imagem válida antes de retornar
+    if square_roi.size == 0:
+        return None
+        
     return square_roi
 
 def generate_augmentation_params():
@@ -106,7 +114,7 @@ def create_output_directory(base_path, gesture):
     return raw_dir, aug_dir
 
 # ==================== CAMINHOS (AJUSTE AQUI) ====================
-caminho_videos_originais = r"G:\Meu Drive\TCC - Aline e Gabi\sinais_treinados\obrigado"
+caminho_videos_originais = r"C:\Users\Aline\Desktop\obrigado"
 caminho_local_temporario = r'C:\Users\Aline\Desktop\dataset_temporario'
 caminho_final_drive = r'G:\Meu Drive\TCC - Aline e Gabi\gestures_dataset_processado'
 # =================================================================
@@ -156,7 +164,7 @@ else:
                 if roi_frame is None or roi_frame.size == 0:
                     continue
 
-                roi_frame_resized = cv2.resize(roi_frame, (256, 256), interpolation=cv2.INTER_AREA)
+                roi_frame_resized = cv2.resize(roi_frame, (224, 224), interpolation=cv2.INTER_AREA)
 
                 roi_original_path = os.path.join(raw_dir, f"frame_{frame_count}_raw.jpg")
                 cv2.imwrite(roi_original_path, roi_frame_resized)
