@@ -63,59 +63,76 @@ def get_dynamic_square_roi(frame, holistic, padding_factor=1.3):
 
 def generate_augmentation_params():
     params = {
-        'angle': random.uniform(-10, 10),
-        'scale': random.uniform(0.9, 1.1),
-        'tx': random.uniform(-0.05, 0.05),
-        'ty': random.uniform(-0.05, 0.05),
-        'brightness': random.uniform(0.8, 1.2),
-        'saturation': random.uniform(0.8, 1.2),
-        'contrast': random.uniform(0.9, 1.1),
-        'do_blur': random.random() < 0.15,
-        'noise_std': random.uniform(0, 3),
+        'angle': random.uniform(-20, 20),
+        'scale': random.uniform(0.8, 1.2),
+        'shear': random.uniform(-5, 5),
+        'brightness': random.uniform(0.6, 1.4),
+        'saturation': random.uniform(0.6, 1.4),
+        'contrast': random.uniform(0.8, 1.2),
+        'do_blur': random.random() < 0.3,
+        'blur_ksize': random.choice([3, 5]),
+        'noise_std': random.uniform(0, 10),
     }
     return params
 
 def apply_augmentation(image, params):
     if image is None or image.size == 0:
         return None
-        
+
     h, w = image.shape[:2]
+    cx, cy = w / 2, h / 2
 
-    center = (w / 2, h / 2)
-    matrix = cv2.getRotationMatrix2D(center, params['angle'], params['scale'])
-    matrix[0, 2] += w * params['tx']
-    matrix[1, 2] += h * params['ty']
-    image = cv2.warpAffine(image, matrix, (w, h), borderMode=cv2.BORDER_REFLECT)
+    # 1) Shear
+    theta_s = np.deg2rad(params['shear'])
+    sh = np.tan(theta_s)
+    # matriz de shear pivoteada no centro verticalmente
+    M_shear = np.array([
+        [1,       sh, -sh * cy],
+        [0,       1,   0      ]
+    ], dtype=np.float32)
+    image = cv2.warpAffine(image, M_shear, (w, h), borderMode=cv2.BORDER_REFLECT)
 
+    # 2) Rotação + escala (sempre uniforme)
+    M_rs = cv2.getRotationMatrix2D((cx, cy), params['angle'], params['scale'])
+    image = cv2.warpAffine(image, M_rs, (w, h), borderMode=cv2.BORDER_REFLECT)
+
+    # 4) Ajustes de cor em HSV
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV).astype(np.float32)
     hsv[..., 1] *= params['saturation']
     hsv[..., 2] *= params['brightness']
     hsv = np.clip(hsv, 0, 255).astype(np.uint8)
     image = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+    # contraste
     image = cv2.addWeighted(image, params['contrast'], np.zeros_like(image), 0, 0)
 
+    # 5) Blur opcional
     if params['do_blur']:
-        image = cv2.GaussianBlur(image, (3, 3), 0)
+        k = params['blur_ksize']
+        image = cv2.GaussianBlur(image, (k, k), 0)
+
+    # 6) Ruído gaussiano
     noise = np.random.normal(0, params['noise_std'], image.shape).astype(np.int16)
     image = np.clip(image.astype(np.int16) + noise, 0, 255).astype(np.uint8)
 
     return image
 
-def create_output_directory(base_path, gesture):
+def create_output_directory(base_path, gesture, n_augs=3):
+    # Cria estrutura: sequence_X/raw + sequence_X/aug_1 ... aug_n
     gesture_path = os.path.join(base_path, gesture)
     os.makedirs(gesture_path, exist_ok=True)
-    existing_sequences = glob(os.path.join(gesture_path, "sequence_*"))
-    sequence_number = len(existing_sequences)
-    out_dir = os.path.join(gesture_path, f'sequence_{sequence_number}')
+    existing = glob(os.path.join(gesture_path, "sequence_*"))
+    seq_num = len(existing)
+    out_dir = os.path.join(gesture_path, f'sequence_{seq_num}')
     raw_dir = os.path.join(out_dir, 'raw')
-    aug_dir = os.path.join(out_dir, 'aug')
+    aug_dirs = [os.path.join(out_dir, f'aug_{i+1}') for i in range(n_augs)]
     os.makedirs(raw_dir, exist_ok=True)
-    os.makedirs(aug_dir, exist_ok=True)
-    return raw_dir, aug_dir
+    for d in aug_dirs:
+        os.makedirs(d, exist_ok=True)
+    return raw_dir, aug_dirs
 
 # ==================== CAMINHOS (AJUSTE AQUI) ====================
-caminho_videos_originais = r"C:\Users\Aline\Desktop\obrigado"
-caminho_local_temporario = r'C:\Users\Aline\Desktop\dataset_temporario'
+caminho_videos_originais = r"G:\.shortcut-targets-by-id\1oE-zIqZbRz2ez0t_V-LtSwaX3WOtwg9E\TCC - Aline e Gabi\sinais_treinados"
+caminho_local_temporario = r'D:\Everaldo\Pictures\tcc'
 caminho_final_drive = r'G:\Meu Drive\TCC - Aline e Gabi\gestures_dataset_processado'
 # =================================================================
 
@@ -130,57 +147,38 @@ print("---------------------------\n")
 # -----------------------------
 
 
-# O processamento só continua se algum vídeo for encontrado
-if not video_files:
-    print("AVISO: Nenhum vídeo foi encontrado. O script não continuará.")
-    print("Por favor, verifique se a variável 'caminho_videos_originais' está correta.")
-else:
-    with mp_holistic.Holistic(static_image_mode=True, min_detection_confidence=0.5, min_tracking_confidence=0.5) as holistic:
-        for vid_path in video_files:
-            gesture_name = os.path.basename(os.path.dirname(vid_path))
-            if not gesture_name or gesture_name == os.path.basename(caminho_videos_originais):
-                gesture_name = os.path.basename(caminho_videos_originais)
-                
-            vid_name = os.path.basename(vid_path)
-            print(f"Processando vídeo: {vid_name} para o sinal: {gesture_name}")
+# Exemplo de integração no loop de vídeo:
+with mp_holistic.Holistic(static_image_mode=False,
+                          min_detection_confidence=0.5,
+                          min_tracking_confidence=0.5) as holistic:
+    for vid_path in video_files:
+        gesture = os.path.basename(os.path.dirname(vid_path))
+        raw_dir, aug_dirs = create_output_directory(caminho_local_temporario, gesture, n_augs=3)
+        # Gera parâmetros de augmentation POR SEQUÊNCIA
+        aug_params_list = [generate_augmentation_params() for _ in aug_dirs]
 
-            video = cv2.VideoCapture(vid_path)
-            if not video.isOpened():
-                print(f"  - Erro ao abrir o vídeo: {vid_name}")
+        cap = cv2.VideoCapture(vid_path)
+        frame_count = 1
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            roi = get_dynamic_square_roi(frame, holistic)
+            if roi is None:
                 continue
-
-            raw_dir, aug_dir = create_output_directory(caminho_local_temporario, gesture_name)
-            frame_count = 1
-
-            augmentation_params = generate_augmentation_params()
-            
-            while video.isOpened():
-                flag, frame = video.read()
-                if not flag:
-                    break
-
-                roi_frame = get_dynamic_square_roi(frame, holistic)
-
-                if roi_frame is None or roi_frame.size == 0:
-                    continue
-
-                roi_frame_resized = cv2.resize(roi_frame, (224, 224), interpolation=cv2.INTER_AREA)
-
-                roi_original_path = os.path.join(raw_dir, f"frame_{frame_count}_raw.jpg")
-                cv2.imwrite(roi_original_path, roi_frame_resized)
-
-                roi_augmented = apply_augmentation(roi_frame_resized, augmentation_params)
-                if roi_augmented is not None:
-                    roi_augmented_path = os.path.join(aug_dir, f"frame_{frame_count}_aug.jpg")
-                    cv2.imwrite(roi_augmented_path, roi_augmented)
-
-                frame_count += 1
-            
-            print(f'-> {frame_count-1} frames válidos processados para {vid_name}')
-            video.release()
-            print(f'✅ Conversão concluída para: {vid_name}', end='\n\n')
-
-    print("🏁 Processamento de vídeos finalizado.")
+            roi_resized = cv2.resize(roi, (224, 224), interpolation=cv2.INTER_AREA)
+            # Salva imagem raw
+            cv2.imwrite(os.path.join(raw_dir, f'frame_{frame_count:04d}_raw.jpg'), roi_resized)
+            # Aplica e salva cada augmentation da sequência
+            for idx, params in enumerate(aug_params_list):
+                aug_img = apply_augmentation(roi_resized, params)
+                if aug_img is not None:
+                    cv2.imwrite(
+                        os.path.join(aug_dirs[idx], f'frame_{frame_count:04d}.jpg'),
+                        aug_img
+                    )
+            frame_count += 1
+        cap.release()
 
     # Descomente a linha abaixo se quiser mover os arquivos para o Drive automaticamente
     # print(f"Movendo arquivos de '{caminho_local_temporario}' para '{caminho_final_drive}'...")

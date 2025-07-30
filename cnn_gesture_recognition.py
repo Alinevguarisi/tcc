@@ -1,6 +1,7 @@
 import os
 import json
 import torch
+from glob import glob
 import numpy as np
 import torch.nn as nn
 import torch.optim as optim
@@ -59,39 +60,37 @@ class GestureDataset(Dataset):
             if not os.path.isdir(gesture_path):
                 continue
             self.class_to_idx[gesture] = idx
-            for seq_folder in os.listdir(gesture_path):
+
+            for seq_folder in sorted(os.listdir(gesture_path)):
                 seq_path = os.path.join(gesture_path, seq_folder)
                 if not os.path.isdir(seq_path):
                     continue
 
                 if use_raw:
-                    frames_path = os.path.join(seq_path, 'raw')
-                    if os.path.isdir(frames_path):
-                        frames = sorted([
-                            os.path.join(frames_path, f) for f in os.listdir(frames_path)
-                            if f.endswith(('.jpg', '.png'))
-                        ])
-                        if len(frames) > 0:
+                    raw_dir = os.path.join(seq_path, 'raw')
+                    if os.path.isdir(raw_dir):
+                        frames = sorted(glob(os.path.join(raw_dir, '*.[jp][pn]g')))
+                        if frames:
                             self.sequences.append(frames)
                             self.labels.append(idx)
 
                 if use_aug:
-                    frames_path = os.path.join(seq_path, 'aug')
-                    if os.path.isdir(frames_path):
-                        frames = sorted([
-                            os.path.join(frames_path, f) for f in os.listdir(frames_path)
-                            if f.endswith(('.jpg', '.png'))
-                        ])
-                        if len(frames) > 0:
-                            self.sequences.append(frames)
-                            self.labels.append(idx)
+                    for sub in sorted(os.listdir(seq_path)):
+                        if sub.startswith('aug_'):
+                            aug_dir = os.path.join(seq_path, sub)
+                            if os.path.isdir(aug_dir):
+                                frames = sorted(glob(os.path.join(aug_dir, '*.[jp][pn]g')))
+                                if frames:
+                                    self.sequences.append(frames)
+                                    self.labels.append(idx)
 
         self.max_len = max_len
         self.transform = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Resize((224, 224)),
-            transforms.Normalize([0.485, 0.456, 0.406],  # Média do ImageNet
-                                 [0.229, 0.224, 0.225])  # Desvio padrão do ImageNet
+            transforms.Normalize(
+                [0.485, 0.456, 0.406],  # Média ImageNet
+                [0.229, 0.224, 0.225]   # Desvio padrão ImageNet
+            )
         ])
 
     def __len__(self):
@@ -122,9 +121,8 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Treinando em:", device)
 
-    base_path = r'G:\\.shortcut-targets-by-id\\1oE-zIqZbRz2ez0t_V-LtSwaX3WOtwg9E\\TCC - Aline e Gabi\\gestures_dataset'
-    base_path = r'D:\\Everaldo\\Pictures\\gestures_dataset'
-    dataset = GestureDataset(base_path, max_len=135, use_raw=True, use_aug=True)
+    base_path = r'D:\Everaldo\Pictures\tcc'
+    dataset = GestureDataset(base_path, max_len=60, use_raw=True, use_aug=True)
     dataloader = DataLoader(dataset, batch_size=8, shuffle=True, num_workers=2, pin_memory=True)
 
     best_acc = 0.0
@@ -132,7 +130,7 @@ if __name__ == "__main__":
     cnn_output_size = 32 * 56 * 56
     hidden_size = 128
     num_classes = len(dataset.class_to_idx)
-    num_epochs = 25
+    num_epochs = 15
 
     model = CNNLSTMModel(cnn_output_size, hidden_size, num_classes).to(device)
     criterion = nn.CrossEntropyLoss()

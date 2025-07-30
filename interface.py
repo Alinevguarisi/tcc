@@ -7,7 +7,7 @@ from torchvision import transforms
 
 # ------ Configurações ------
 model_path = 'cnn_lstm_best_model.pth'
-dataset_path = 'G:\\.shortcut-targets-by-id\\1oE-zIqZbRz2ez0t_V-LtSwaX3WOtwg9E\\TCC - Aline e Gabi\\gestures_dataset'
+dataset_path = 'D:\\Everaldo\\Pictures\\tcc'
 max_len = 60
 frame_size = (224, 224)
 
