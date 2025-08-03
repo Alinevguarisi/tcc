@@ -14,6 +14,7 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 
 # ------------------- MODELO CNN + LSTM -------------------
 
+
 class CNNLSTMModel(nn.Module):
     def __init__(self, cnn_output_size, hidden_size, num_classes):
         super(CNNLSTMModel, self).__init__()
@@ -25,7 +26,8 @@ class CNNLSTMModel(nn.Module):
             nn.ReLU(),
             nn.MaxPool2d(2, 2)
         )
-        self.lstm = nn.LSTM(input_size=cnn_output_size, hidden_size=hidden_size, batch_first=True)
+        self.lstm = nn.LSTM(input_size=cnn_output_size,
+                            hidden_size=hidden_size, batch_first=True)
         self.fc = nn.Linear(hidden_size, num_classes)
 
     def forward(self, x):
@@ -42,11 +44,13 @@ class CNNLSTMModel(nn.Module):
 
 # ------------------- DATASET POR SEQUÊNCIA -------------------
 
+
 def sample_frames(frames, num_samples):
-        if len(frames) <= num_samples:
-            return frames + [frames[-1]] * (num_samples - len(frames))
-        idxs = np.linspace(0, len(frames) - 1, num_samples).astype(int)
-        return [frames[i] for i in idxs]
+    if len(frames) <= num_samples:
+        return frames + [frames[-1]] * (num_samples - len(frames))
+    idxs = np.linspace(0, len(frames) - 1, num_samples).astype(int)
+    return [frames[i] for i in idxs]
+
 
 class GestureDataset(Dataset):
     def __init__(self, base_path, max_len=30, use_raw=True, use_aug=True):
@@ -69,7 +73,8 @@ class GestureDataset(Dataset):
                 if use_raw:
                     raw_dir = os.path.join(seq_path, 'raw')
                     if os.path.isdir(raw_dir):
-                        frames = sorted(glob(os.path.join(raw_dir, '*.[jp][pn]g')))
+                        frames = sorted(
+                            glob(os.path.join(raw_dir, '*.[jp][pn]g')))
                         if frames:
                             self.sequences.append(frames)
                             self.labels.append(idx)
@@ -79,7 +84,8 @@ class GestureDataset(Dataset):
                         if sub.startswith('aug_'):
                             aug_dir = os.path.join(seq_path, sub)
                             if os.path.isdir(aug_dir):
-                                frames = sorted(glob(os.path.join(aug_dir, '*.[jp][pn]g')))
+                                frames = sorted(
+                                    glob(os.path.join(aug_dir, '*.[jp][pn]g')))
                                 if frames:
                                     self.sequences.append(frames)
                                     self.labels.append(idx)
@@ -115,15 +121,18 @@ class GestureDataset(Dataset):
 
 # ------------------- TREINAMENTO -------------------
 
+
 if __name__ == "__main__":
     start_time = time.time()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Treinando em:", device)
 
-    base_path = r'D:\Everaldo\Pictures\tcc'
-    dataset = GestureDataset(base_path, max_len=60, use_raw=True, use_aug=True)
-    dataloader = DataLoader(dataset, batch_size=8, shuffle=True, num_workers=2, pin_memory=True)
+    base_path = '.\imagens_tcc'
+    dataset = GestureDataset(base_path, max_len=100,
+                             use_raw=True, use_aug=True)
+    dataloader = DataLoader(dataset, batch_size=8,
+                            shuffle=True, num_workers=2, pin_memory=True)
 
     best_acc = 0.0
     metrics_history = []
@@ -169,8 +178,10 @@ if __name__ == "__main__":
                 all_preds.extend(preds.cpu().numpy())
 
         acc = accuracy_score(all_labels, all_preds)
-        prec = precision_score(all_labels, all_preds, average='macro', zero_division=0)
-        rec = recall_score(all_labels, all_preds, average='macro', zero_division=0)
+        prec = precision_score(all_labels, all_preds,
+                               average='macro', zero_division=0)
+        rec = recall_score(all_labels, all_preds,
+                           average='macro', zero_division=0)
         f1 = f1_score(all_labels, all_preds, average='macro', zero_division=0)
         epoch_end = time.time()
 
@@ -178,7 +189,7 @@ if __name__ == "__main__":
             "epoch": epoch + 1,
             "loss": loss.item(),
             "accuracy": acc,
-            "precision": prec,''
+            "precision": prec, ''
             "recall": rec,
             "f1": f1,
             "epoch_time": epoch_end - epoch_start
@@ -189,8 +200,10 @@ if __name__ == "__main__":
             torch.save(model.state_dict(), 'cnn_lstm_best_model.pth')
             print(f"🔖 Novo melhor modelo salvo! Accuracy: {acc:.4f}")
 
-        print(f"Accuracy: {acc:.4f} | Precision: {prec:.4f} | Recall: {rec:.4f} | F1: {f1:.4f} | loss: {loss.item()}")
-        print(f"Epoch {epoch+1}/{num_epochs} - Tempo: {epoch_end - epoch_start:.2f} segundos", end='\n\n')
+        print(
+            f"Accuracy: {acc:.4f} | Precision: {prec:.4f} | Recall: {rec:.4f} | F1: {f1:.4f} | loss: {loss.item()}")
+        print(
+            f"Epoch {epoch+1}/{num_epochs} - Tempo: {epoch_end - epoch_start:.2f} segundos", end='\n\n')
 
     # ------------------- SALVAR MODELO -------------------
 

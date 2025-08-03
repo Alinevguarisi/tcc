@@ -4,10 +4,10 @@ import numpy as np
 import random
 from glob import glob
 import mediapipe as mp
-import shutil
 
 # Inicializa o MediaPipe Holistic
 mp_holistic = mp.solutions.holistic
+
 
 def get_dynamic_square_roi(frame, holistic, padding_factor=1.3):
     h_frame, w_frame, _ = frame.shape
@@ -16,21 +16,26 @@ def get_dynamic_square_roi(frame, holistic, padding_factor=1.3):
 
     landmarks = []
     if results.face_landmarks:
-        landmarks.extend([(lm.x, lm.y) for lm in results.face_landmarks.landmark])
+        landmarks.extend([(lm.x, lm.y)
+                         for lm in results.face_landmarks.landmark])
     if results.left_hand_landmarks:
-        landmarks.extend([(lm.x, lm.y) for lm in results.left_hand_landmarks.landmark])
+        landmarks.extend([(lm.x, lm.y)
+                         for lm in results.left_hand_landmarks.landmark])
     if results.right_hand_landmarks:
-        landmarks.extend([(lm.x, lm.y) for lm in results.right_hand_landmarks.landmark])
+        landmarks.extend([(lm.x, lm.y)
+                         for lm in results.right_hand_landmarks.landmark])
     if results.pose_landmarks:
-        landmarks.extend([(lm.x, lm.y) for lm in results.pose_landmarks.landmark])
+        landmarks.extend([(lm.x, lm.y)
+                         for lm in results.pose_landmarks.landmark])
 
     if not landmarks:
         return None
 
-    coords = np.array([[lm_x * w_frame, lm_y * h_frame] for lm_x, lm_y in landmarks])
+    coords = np.array([[lm_x * w_frame, lm_y * h_frame]
+                      for lm_x, lm_y in landmarks])
     x_min, y_min = np.min(coords, axis=0)
     x_max, y_max = np.max(coords, axis=0)
-    
+
     box_w = x_max - x_min
     box_h = y_max - y_min
     center_x = x_min + box_w / 2
@@ -45,7 +50,7 @@ def get_dynamic_square_roi(frame, holistic, padding_factor=1.3):
     new_y_min = int(center_y - square_size / 2)
     new_x_max = new_x_min + square_size
     new_y_max = new_y_min + square_size
-    
+
     # Garante que as coordenadas do quadrado não saiam dos limites da imagem
     new_x_min = max(0, new_x_min)
     new_y_min = max(0, new_y_min)
@@ -54,12 +59,13 @@ def get_dynamic_square_roi(frame, holistic, padding_factor=1.3):
 
     # Recorta a região de interesse (ROI) quadrada
     square_roi = frame[new_y_min:new_y_max, new_x_min:new_x_max]
-    
+
     # Verifica se o recorte resultou em uma imagem válida antes de retornar
     if square_roi.size == 0:
         return None
-        
+
     return square_roi
+
 
 def generate_augmentation_params():
     params = {
@@ -75,6 +81,7 @@ def generate_augmentation_params():
     }
     return params
 
+
 def apply_augmentation(image, params):
     if image is None or image.size == 0:
         return None
@@ -88,9 +95,10 @@ def apply_augmentation(image, params):
     # matriz de shear pivoteada no centro verticalmente
     M_shear = np.array([
         [1,       sh, -sh * cy],
-        [0,       1,   0      ]
+        [0,       1,   0]
     ], dtype=np.float32)
-    image = cv2.warpAffine(image, M_shear, (w, h), borderMode=cv2.BORDER_REFLECT)
+    image = cv2.warpAffine(image, M_shear, (w, h),
+                           borderMode=cv2.BORDER_REFLECT)
 
     # 2) Rotação + escala (sempre uniforme)
     M_rs = cv2.getRotationMatrix2D((cx, cy), params['angle'], params['scale'])
@@ -103,7 +111,8 @@ def apply_augmentation(image, params):
     hsv = np.clip(hsv, 0, 255).astype(np.uint8)
     image = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
     # contraste
-    image = cv2.addWeighted(image, params['contrast'], np.zeros_like(image), 0, 0)
+    image = cv2.addWeighted(
+        image, params['contrast'], np.zeros_like(image), 0, 0)
 
     # 5) Blur opcional
     if params['do_blur']:
@@ -111,10 +120,12 @@ def apply_augmentation(image, params):
         image = cv2.GaussianBlur(image, (k, k), 0)
 
     # 6) Ruído gaussiano
-    noise = np.random.normal(0, params['noise_std'], image.shape).astype(np.int16)
+    noise = np.random.normal(
+        0, params['noise_std'], image.shape).astype(np.int16)
     image = np.clip(image.astype(np.int16) + noise, 0, 255).astype(np.uint8)
 
     return image
+
 
 def create_output_directory(base_path, gesture, n_augs=3):
     # Cria estrutura: sequence_X/raw + sequence_X/aug_1 ... aug_n
@@ -130,17 +141,18 @@ def create_output_directory(base_path, gesture, n_augs=3):
         os.makedirs(d, exist_ok=True)
     return raw_dir, aug_dirs
 
-# ==================== CAMINHOS (AJUSTE AQUI) ====================
-caminho_videos_originais = r"G:\.shortcut-targets-by-id\1oE-zIqZbRz2ez0t_V-LtSwaX3WOtwg9E\TCC - Aline e Gabi\sinais_treinados"
-caminho_local_temporario = r'D:\Everaldo\Pictures\tcc'
-caminho_final_drive = r'G:\Meu Drive\TCC - Aline e Gabi\gestures_dataset_processado'
+
+# ==================== CAMINHOS ====================
+caminho_videos_originais = r"G:\\.shortcut-targets-by-id\\1oE-zIqZbRz2ez0t_V-LtSwaX3WOtwg9E\\TCC - Aline e Gabi\\sinais_treinados"
+caminho_local_temporario = '.\imagens_tcc'
 # =================================================================
 
 # --- ETAPA DE VERIFICAÇÃO ---
 print("--- INICIANDO VERIFICAÇÃO ---")
 print(f"Procurando por vídeos .mp4 em: '{caminho_videos_originais}'")
 
-video_files = glob(os.path.join(caminho_videos_originais, '**', '*.mp4'), recursive=True)
+video_files = glob(os.path.join(caminho_videos_originais,
+                   '**', '*.mp4'), recursive=True)
 
 print(f"--> Foram encontrados {len(video_files)} vídeos.")
 print("---------------------------\n")
@@ -153,7 +165,8 @@ with mp_holistic.Holistic(static_image_mode=False,
                           min_tracking_confidence=0.5) as holistic:
     for vid_path in video_files:
         gesture = os.path.basename(os.path.dirname(vid_path))
-        raw_dir, aug_dirs = create_output_directory(caminho_local_temporario, gesture, n_augs=3)
+        raw_dir, aug_dirs = create_output_directory(
+            caminho_local_temporario, gesture, n_augs=2)
         # Gera parâmetros de augmentation POR SEQUÊNCIA
         aug_params_list = [generate_augmentation_params() for _ in aug_dirs]
 
@@ -166,21 +179,19 @@ with mp_holistic.Holistic(static_image_mode=False,
             roi = get_dynamic_square_roi(frame, holistic)
             if roi is None:
                 continue
-            roi_resized = cv2.resize(roi, (224, 224), interpolation=cv2.INTER_AREA)
+            roi_resized = cv2.resize(
+                roi, (224, 224), interpolation=cv2.INTER_AREA)
             # Salva imagem raw
-            cv2.imwrite(os.path.join(raw_dir, f'frame_{frame_count:04d}_raw.jpg'), roi_resized)
+            cv2.imwrite(os.path.join(
+                raw_dir, f'frame_{frame_count:04d}_raw.jpg'), roi_resized)
             # Aplica e salva cada augmentation da sequência
             for idx, params in enumerate(aug_params_list):
                 aug_img = apply_augmentation(roi_resized, params)
                 if aug_img is not None:
                     cv2.imwrite(
-                        os.path.join(aug_dirs[idx], f'frame_{frame_count:04d}.jpg'),
+                        os.path.join(
+                            aug_dirs[idx], f'frame_{frame_count:04d}.jpg'),
                         aug_img
                     )
             frame_count += 1
         cap.release()
-
-    # Descomente a linha abaixo se quiser mover os arquivos para o Drive automaticamente
-    # print(f"Movendo arquivos de '{caminho_local_temporario}' para '{caminho_final_drive}'...")
-    # shutil.move(caminho_local_temporario, caminho_final_drive)
-    # print("✅ Arquivos movidos para o Google Drive com sucesso!")
