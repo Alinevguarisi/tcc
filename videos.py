@@ -143,55 +143,54 @@ def create_output_directory(base_path, gesture, n_augs=3):
 
 
 # ==================== CAMINHOS ====================
-caminho_videos_originais = r"G:\\.shortcut-targets-by-id\\1oE-zIqZbRz2ez0t_V-LtSwaX3WOtwg9E\\TCC - Aline e Gabi\\sinais_treinados"
+# Vídeos podem ficar no Google Drive (ex.: G: com Drive para Desktop).
+# Use uma barra invertida entre pastas no Windows; ex.:
+#   r"G:\.shortcut-targets-by-id\1oE-zIqZbRz2ez0t_V-LtSwaX3WOtwg9E\TCC - Aline e Gabi\sinais_treinados"
+caminho_videos_originais = r"G:\.shortcut-targets-by-id\1oE-zIqZbRz2ez0t_V-LtSwaX3WOtwg9E\TCC - Aline e Gabi\sinais_treinados"
+# Saída dos frames (raw + aug): melhor no disco local para treino rápido
 caminho_local_temporario = '.\imagens_tcc'
 # =================================================================
 
-# --- ETAPA DE VERIFICAÇÃO ---
-print("--- INICIANDO VERIFICAÇÃO ---")
-print(f"Procurando por vídeos .mp4 em: '{caminho_videos_originais}'")
+if __name__ == "__main__":
+    # --- ETAPA DE VERIFICAÇÃO ---
+    print("--- INICIANDO VERIFICAÇÃO ---")
+    print(f"Procurando por vídeos .mp4 em: '{caminho_videos_originais}'")
 
-video_files = glob(os.path.join(caminho_videos_originais,
-                   '**', '*.mp4'), recursive=True)
+    video_files = glob(os.path.join(caminho_videos_originais,
+                       '**', '*.mp4'), recursive=True)
 
-print(f"--> Foram encontrados {len(video_files)} vídeos.")
-print("---------------------------\n")
-# -----------------------------
+    print(f"--> Foram encontrados {len(video_files)} vídeos.")
+    print("---------------------------\n")
 
+    with mp_holistic.Holistic(static_image_mode=False,
+                              min_detection_confidence=0.5,
+                              min_tracking_confidence=0.5) as holistic:
+        for vid_path in video_files:
+            gesture = os.path.basename(os.path.dirname(vid_path))
+            raw_dir, aug_dirs = create_output_directory(
+                caminho_local_temporario, gesture, n_augs=2)
+            aug_params_list = [generate_augmentation_params() for _ in aug_dirs]
 
-# Exemplo de integração no loop de vídeo:
-with mp_holistic.Holistic(static_image_mode=False,
-                          min_detection_confidence=0.5,
-                          min_tracking_confidence=0.5) as holistic:
-    for vid_path in video_files:
-        gesture = os.path.basename(os.path.dirname(vid_path))
-        raw_dir, aug_dirs = create_output_directory(
-            caminho_local_temporario, gesture, n_augs=2)
-        # Gera parâmetros de augmentation POR SEQUÊNCIA
-        aug_params_list = [generate_augmentation_params() for _ in aug_dirs]
-
-        cap = cv2.VideoCapture(vid_path)
-        frame_count = 1
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            roi = get_dynamic_square_roi(frame, holistic)
-            if roi is None:
-                continue
-            roi_resized = cv2.resize(
-                roi, (224, 224), interpolation=cv2.INTER_AREA)
-            # Salva imagem raw
-            cv2.imwrite(os.path.join(
-                raw_dir, f'frame_{frame_count:04d}_raw.jpg'), roi_resized)
-            # Aplica e salva cada augmentation da sequência
-            for idx, params in enumerate(aug_params_list):
-                aug_img = apply_augmentation(roi_resized, params)
-                if aug_img is not None:
-                    cv2.imwrite(
-                        os.path.join(
-                            aug_dirs[idx], f'frame_{frame_count:04d}.jpg'),
-                        aug_img
-                    )
-            frame_count += 1
-        cap.release()
+            cap = cv2.VideoCapture(vid_path)
+            frame_count = 1
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                roi = get_dynamic_square_roi(frame, holistic)
+                if roi is None:
+                    continue
+                roi_resized = cv2.resize(
+                    roi, (224, 224), interpolation=cv2.INTER_AREA)
+                cv2.imwrite(os.path.join(
+                    raw_dir, f'frame_{frame_count:04d}_raw.jpg'), roi_resized)
+                for idx, params in enumerate(aug_params_list):
+                    aug_img = apply_augmentation(roi_resized, params)
+                    if aug_img is not None:
+                        cv2.imwrite(
+                            os.path.join(
+                                aug_dirs[idx], f'frame_{frame_count:04d}.jpg'),
+                            aug_img
+                        )
+                frame_count += 1
+            cap.release()

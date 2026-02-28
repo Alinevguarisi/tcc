@@ -53,7 +53,8 @@ def sample_frames(frames, num_samples):
 
 
 class GestureDataset(Dataset):
-    def __init__(self, base_path, max_len=30, use_raw=True, use_aug=True):
+    """Com train_augment=True aplica variações de cor/brilho (recomendado para poucos vídeos por classe)."""
+    def __init__(self, base_path, max_len=30, use_raw=True, use_aug=True, train_augment=False):
         self.sequences = []
         self.labels = []
         self.class_to_idx = {}
@@ -91,11 +92,20 @@ class GestureDataset(Dataset):
                                     self.labels.append(idx)
 
         self.max_len = max_len
+        self.train_augment = train_augment
         self.transform = transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize(
                 [0.485, 0.456, 0.406],  # Média ImageNet
                 [0.229, 0.224, 0.225]   # Desvio padrão ImageNet
+            )
+        ])
+        self.train_transform = transforms.Compose([
+            transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.2),
+            transforms.ToTensor(),
+            transforms.Normalize(
+                [0.485, 0.456, 0.406],
+                [0.229, 0.224, 0.225]
             )
         ])
 
@@ -108,10 +118,10 @@ class GestureDataset(Dataset):
             label = self.labels[idx]
             selected_frames = sample_frames(frames, self.max_len)
             tensor_seq = []
+            t = self.train_transform if self.train_augment else self.transform
             for fpath in selected_frames:
-                # print(f"Lendo imagem: {fpath}")  # DEBUG
                 img = Image.open(fpath).convert("RGB")
-                tensor = self.transform(img)
+                tensor = t(img)
                 tensor_seq.append(tensor)
             tensor_seq = torch.stack(tensor_seq)
             return tensor_seq, torch.tensor(label)
@@ -125,37 +135,56 @@ class GestureDataset(Dataset):
 if __name__ == "__main__":
     start_time = time.time()
 
+    # Reprodutibilidade do treino
+    torch.manual_seed(42)
+    np.random.seed(42)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(42)
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Treinando em:", device)
 
     base_path = '.\imagens_tcc'
-    dataset = GestureDataset(base_path, max_len=100,
-                             use_raw=True, use_aug=True)
-    dataloader = DataLoader(dataset, batch_size=8,
-                            shuffle=True, num_workers=2, pin_memory=True)
+    # Dataset COM augmentation em tempo de treino (recomendado para V-Librasil: 3 vídeos/palavra)
+    dataset_train = GestureDataset(base_path, max_len=100,
+                                   use_raw=True, use_aug=True, train_augment=True)
+    # Dataset SEM augmentation para avaliação (métricas estáveis)
+    dataset_eval = GestureDataset(base_path, max_len=100,
+                                 use_raw=True, use_aug=True, train_augment=False)
+    dataloader_train = DataLoader(dataset_train, batch_size=8,
+                                 shuffle=True, num_workers=2, pin_memory=True)
+    dataloader_eval = DataLoader(dataset_eval, batch_size=8,
+                                 shuffle=False, num_workers=2, pin_memory=True)
 
     best_acc = 0.0
     metrics_history = []
     cnn_output_size = 32 * 56 * 56
     hidden_size = 128
-    num_classes = len(dataset.class_to_idx)
+    num_classes = len(dataset_train.class_to_idx)
     num_epochs = 15
+
+    model_config = {
+        "num_classes": num_classes,
+        "max_len": 100,
+        "cnn_output_size": cnn_output_size,
+        "hidden_size": hidden_size,
+    }
 
     model = CNNLSTMModel(cnn_output_size, hidden_size, num_classes).to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=0.0001)
 
-    print(f"Classes: {dataset.class_to_idx}")
-    print(f"Total sequências: {len(dataset)}")
+    print(f"Classes: {dataset_train.class_to_idx}")
+    print(f"Total sequências (treino): {len(dataset_train)}")
 
     with open("class_to_idx.json", "w") as f:
-        json.dump(dataset.class_to_idx, f)
+        json.dump(dataset_train.class_to_idx, f)
 
     print("Treinamento iniciado.")
     for epoch in range(num_epochs):
         epoch_start = time.time()
         model.train()
-        for sequences, labels in dataloader:
+        for sequences, labels in dataloader_train:
             sequences = sequences.to(device)
             labels = labels.to(device)
             optimizer.zero_grad()
@@ -169,7 +198,7 @@ if __name__ == "__main__":
         all_labels = []
         all_preds = []
         with torch.no_grad():
-            for sequences, labels in dataloader:
+            for sequences, labels in dataloader_eval:
                 sequences = sequences.to(device)
                 labels = labels.to(device)
                 outputs = model(sequences)
@@ -189,7 +218,7 @@ if __name__ == "__main__":
             "epoch": epoch + 1,
             "loss": loss.item(),
             "accuracy": acc,
-            "precision": prec, ''
+            "precision": prec,
             "recall": rec,
             "f1": f1,
             "epoch_time": epoch_end - epoch_start
@@ -198,6 +227,8 @@ if __name__ == "__main__":
         if acc > best_acc:
             best_acc = acc
             torch.save(model.state_dict(), 'cnn_lstm_best_model.pth')
+            with open("model_config.json", "w") as f:
+                json.dump(model_config, f, indent=2)
             print(f"🔖 Novo melhor modelo salvo! Accuracy: {acc:.4f}")
 
         print(
@@ -208,7 +239,10 @@ if __name__ == "__main__":
     # ------------------- SALVAR MODELO -------------------
 
     torch.save(model.state_dict(), 'cnn_lstm_model.pth')
+    with open("model_config.json", "w") as f:
+        json.dump(model_config, f, indent=2)
     print("✅ Modelo treinado e salvo como 'cnn_lstm_model.pth'")
+    print("✅ Configuração salva em 'model_config.json'")
 
     df_metrics = pd.DataFrame(metrics_history)
     df_metrics.to_csv("metrics_history.csv", index=False)
